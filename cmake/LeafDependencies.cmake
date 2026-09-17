@@ -21,6 +21,24 @@ function(leaf_require_nlohmann_json_major)
   endif()
 endfunction()
 
+# CMake 4.x rejects cmake_minimum_required(<3.5) in legacy fetched deps.
+# Raise the effective policy floor only while populating FetchContent dependencies.
+macro(leaf_fetchcontent_make_available_compat dep_name)
+  if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0")
+    set(_leaf_saved_policy_version_minimum "${CMAKE_POLICY_VERSION_MINIMUM}")
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+  endif()
+  FetchContent_MakeAvailable(${dep_name})
+  if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0")
+    if(DEFINED _leaf_saved_policy_version_minimum AND NOT _leaf_saved_policy_version_minimum STREQUAL "")
+      set(CMAKE_POLICY_VERSION_MINIMUM "${_leaf_saved_policy_version_minimum}")
+    else()
+      unset(CMAKE_POLICY_VERSION_MINIMUM)
+    endif()
+    unset(_leaf_saved_policy_version_minimum)
+  endif()
+endmacro()
+
 function(leaf_fetch_nlohmann_json)
   include(FetchContent)
   FetchContent_Declare(
@@ -28,7 +46,7 @@ function(leaf_fetch_nlohmann_json)
     URL https://github.com/nlohmann/json/releases/download/v3.11.2/json.tar.xz
     URL_HASH SHA256=8c4b26bf4b422252e13f332bc5e388ec0ab5c3443d24399acb675e68278d341f
   )
-  FetchContent_MakeAvailable(nlohmann_json)
+  leaf_fetchcontent_make_available_compat(nlohmann_json)
 endfunction()
 
 function(leaf_fetch_gtest)
@@ -39,7 +57,7 @@ function(leaf_fetch_gtest)
     URL_HASH SHA256=8ad598c73ad796e0d8280b082cebd82a630d73e73cd3c70057938a6501bba5d7
   )
   set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-  FetchContent_MakeAvailable(googletest)
+  leaf_fetchcontent_make_available_compat(googletest)
 endfunction()
 
 function(leaf_find_nlohmann_json)
