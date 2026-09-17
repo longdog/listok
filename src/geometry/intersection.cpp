@@ -3,7 +3,6 @@
 #include "polyline.h"
 
 #include <cmath>
-#include <limits>
 #include <optional>
 #include <vector>
 
@@ -61,6 +60,23 @@ std::optional<RayHit> nearestHit(const std::vector<RayHit>& hits, int direction)
   return nearest;
 }
 
+void collectRayHitsForSegment(Point origin, const Point& axis, Point a, Point b,
+                              double parallelEpsilon, double dedupeTolerance,
+                              std::vector<RayHit>& hits) noexcept {
+  for (int direction : {-1, 1}) {
+    Point hit{};
+    double distance = 0.0;
+    const Point rayDirection = multiply(axis, static_cast<double>(direction));
+    if (!segmentRayIntersection(origin, rayDirection, a, b, parallelEpsilon, hit, distance)) {
+      continue;
+    }
+    if (isDuplicateHit(hits, hit, dedupeTolerance)) {
+      continue;
+    }
+    hits.push_back({hit, distance, direction});
+  }
+}
+
 }  // namespace
 
 Outcome<std::pair<Point, Point>> contourRayHits(const Path& contour, Point origin,
@@ -75,25 +91,26 @@ Outcome<std::pair<Point, Point>> contourRayHits(const Path& contour, Point origi
     return Outcome<std::pair<Point, Point>>::failure(*axis.error());
   }
 
-  const double contourScale = std::max(arcLength(contour), 1.0);
+  const double contourScale = arcLength(contour);
+  if (contourScale <= kVertexTolerance) {
+    return Outcome<std::pair<Point, Point>>::failure(
+        {ErrorCode::InvalidMeasurements, Stage::Measurements, "degenerate contour"});
+  }
+
   const double parallelEpsilon = 1e-12 * contourScale;
   const double dedupeTolerance = 1e-9 * contourScale;
 
   std::vector<RayHit> hits;
   for (std::size_t i = 1; i < contour.size(); ++i) {
-    for (int direction : {-1, 1}) {
-      Point hit{};
-      double distance = 0.0;
-      const Point rayDirection = multiply(*axis.value(), static_cast<double>(direction));
-      if (!segmentRayIntersection(origin, rayDirection, contour[i - 1], contour[i],
-                                  parallelEpsilon, hit, distance)) {
-        continue;
-      }
-      if (isDuplicateHit(hits, hit, dedupeTolerance)) {
-        continue;
-      }
-      hits.push_back({hit, distance, direction});
-    }
+    collectRayHitsForSegment(origin, *axis.value(), contour[i - 1], contour[i], parallelEpsilon,
+                             dedupeTolerance, hits);
+  }
+
+  const bool explicitlyClosed =
+      nearlyEqual(contour.front(), contour.back(), dedupeTolerance);
+  if (!explicitlyClosed) {
+    collectRayHitsForSegment(origin, *axis.value(), contour.back(), contour.front(),
+                             parallelEpsilon, dedupeTolerance, hits);
   }
 
   const auto negative = nearestHit(hits, -1);

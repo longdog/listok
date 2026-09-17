@@ -68,9 +68,39 @@ bool segmentsIntersectInterior(Point a, Point b, Point c, Point d, double epsilo
   return t > epsilon && t < 1.0 - epsilon && u > epsilon && u < 1.0 - epsilon;
 }
 
+bool projectionOverlapsInterior(double a0, double a1, double b0, double b1, double epsilon) noexcept {
+  const double overlapLo = std::max(std::min(a0, a1), std::min(b0, b1));
+  const double overlapHi = std::min(std::max(a0, a1), std::max(b0, b1));
+  return overlapHi - overlapLo > epsilon;
+}
+
+bool segmentsCollinearOverlapInterior(Point a, Point b, Point c, Point d, double epsilon) noexcept {
+  const Point r = subtract(b, a);
+  const Point s = subtract(d, c);
+  const double rLen = length(r);
+  const double sLen = length(s);
+  if (rLen <= epsilon || sLen <= epsilon) {
+    return false;
+  }
+  if (std::abs(cross(r, s)) > epsilon * rLen * sLen) {
+    return false;
+  }
+  if (std::abs(cross(subtract(c, a), r)) > epsilon * rLen * length(subtract(c, a))) {
+    return false;
+  }
+
+  const double rLen2 = dot(r, r);
+  if (rLen2 <= epsilon) {
+    return false;
+  }
+  const auto project = [&](Point p) noexcept { return dot(subtract(p, a), r) / rLen2; };
+  return projectionOverlapsInterior(project(a), project(b), project(c), project(d), epsilon);
+}
+
 bool crossesSeparator(Point a, Point b, Point baseSeparator, Point apexSeparator,
                       double epsilon) noexcept {
-  return segmentsIntersectInterior(a, b, baseSeparator, apexSeparator, epsilon);
+  return segmentsIntersectInterior(a, b, baseSeparator, apexSeparator, epsilon) ||
+         segmentsCollinearOverlapInterior(a, b, baseSeparator, apexSeparator, epsilon);
 }
 
 int normalizedXSign(const CoordinateSystem& cs, Point point, double tolerance) noexcept {

@@ -49,24 +49,28 @@ Outcome<ArcSamples> sampleArcInterval(const Path& path, double s0, double s1) no
 }
 
 int countDistinctPoints(const std::vector<Point>& points, double tolerance) noexcept {
-  int distinct = 0;
+  std::vector<Point> representatives;
   for (const Point& point : points) {
     bool isDistinct = true;
-    for (int i = 0; i < distinct; ++i) {
-      if (nearlyEqual(point, points[static_cast<std::size_t>(i)], tolerance)) {
+    for (const Point& representative : representatives) {
+      if (nearlyEqual(point, representative, tolerance)) {
         isDistinct = false;
         break;
       }
     }
     if (isDistinct) {
-      ++distinct;
+      representatives.push_back(point);
     }
   }
-  return distinct;
+  return static_cast<int>(representatives.size());
 }
 
-Outcome<std::vector<Point>> collectPointsInArcInterval(const Path& path, double lo, double hi,
+Outcome<std::vector<Point>> collectPointsInArcInterval(const Path& path, double s0, double s1,
                                                          double tolerance) noexcept {
+  const double total = arcLength(path);
+  const double lo = std::clamp(std::min(s0, s1), 0.0, total);
+  const double hi = std::clamp(std::max(s0, s1), 0.0, total);
+
   std::vector<Point> points;
   double traveled = 0.0;
   for (std::size_t i = 0; i < path.size(); ++i) {
@@ -91,26 +95,6 @@ Outcome<std::vector<Point>> collectPointsInArcInterval(const Path& path, double 
   points.push_back(*end.value());
 
   return Outcome<std::vector<Point>>::success(std::move(points));
-}
-
-bool hasAtLeastThreeDistinctPoints(const std::vector<Point>& points) noexcept {
-  int distinct = 0;
-  for (const Point& point : points) {
-    bool isDistinct = true;
-    for (int i = 0; i < distinct; ++i) {
-      if (nearlyEqual(point, points[static_cast<std::size_t>(i)], kDistinctPointTolerance)) {
-        isDistinct = false;
-        break;
-      }
-    }
-    if (isDistinct) {
-      ++distinct;
-      if (distinct >= 3) {
-        return true;
-      }
-    }
-  }
-  return false;
 }
 
 }  // namespace
@@ -176,8 +160,10 @@ Outcome<Point> unitTangentRegression(const Path& path, double s0, double s1,
     return Outcome<Point>::failure(
         {ErrorCode::InvalidMeasurements, Stage::Measurements, "span too small"});
   }
-  const double lo = std::min(s0, s1);
-  const double hi = std::max(s0, s1);
+
+  const double total = arcLength(path);
+  const double lo = std::clamp(std::min(s0, s1), 0.0, total);
+  const double hi = std::clamp(std::max(s0, s1), 0.0, total);
   const auto intervalPoints = collectPointsInArcInterval(path, lo, hi, kDistinctPointTolerance);
   if (!intervalPoints.hasValue()) {
     return Outcome<Point>::failure(*intervalPoints.error());
@@ -185,10 +171,6 @@ Outcome<Point> unitTangentRegression(const Path& path, double s0, double s1,
   if (countDistinctPoints(*intervalPoints.value(), kDistinctPointTolerance) < 3) {
     return Outcome<Point>::failure(
         {ErrorCode::InvalidMeasurements, Stage::Measurements, "insufficient points"});
-  }
-  if (!hasAtLeastThreeDistinctPoints(samples.value()->points)) {
-    return Outcome<Point>::failure(
-        {ErrorCode::InvalidMeasurements, Stage::Measurements, "insufficient samples"});
   }
 
   const auto& points = samples.value()->points;

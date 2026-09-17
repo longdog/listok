@@ -4,8 +4,6 @@
 #include <leaf/outcome.h>
 #include <leaf/types.h>
 
-#include <cmath>
-#include <limits>
 #include <string>
 #include <utility>
 
@@ -27,20 +25,12 @@ namespace {
 
 constexpr double kAbsTol = 1e-12;
 
-leaf::ErrorCode errorCode(const leaf::Outcome<double>& outcome) {
-  EXPECT_NE(outcome.error(), nullptr);
-  return outcome.error()->code;
-}
-
-leaf::ErrorCode errorCode(const leaf::Outcome<leaf::Point>& outcome) {
-  EXPECT_NE(outcome.error(), nullptr);
-  return outcome.error()->code;
-}
-
-leaf::ErrorCode errorCode(
-    const leaf::Outcome<std::pair<leaf::Point, leaf::Point>>& outcome) {
-  EXPECT_NE(outcome.error(), nullptr);
-  return outcome.error()->code;
+template <typename T>
+void expectMeasurementFailure(const leaf::Outcome<T>& outcome) {
+  ASSERT_FALSE(outcome.hasValue());
+  ASSERT_NE(outcome.error(), nullptr);
+  EXPECT_EQ(outcome.error()->code, leaf::ErrorCode::InvalidMeasurements);
+  EXPECT_EQ(outcome.error()->stage, leaf::Stage::Measurements);
 }
 
 void expectPointNear(const leaf::Point& actual, const leaf::Point& expected,
@@ -60,9 +50,11 @@ leaf::CoordinateSystem axisAlignedCs(double scale) {
 
 }  // namespace
 
-TEST(geometry, ArcTransformAndAmbiguousArc) {
+TEST(geometry, ArcTransformAndChoosesShortestSameSideArc) {
   leaf::Path p{{0, 0}, {0, 2}, {0, 10}};
-  EXPECT_POINT_EQ(*leaf::detail::pointAtArc(p, 5).value(), (leaf::Point{0, 5}));
+  const auto midpoint = leaf::detail::pointAtArc(p, 5);
+  ASSERT_TRUE(midpoint.hasValue());
+  EXPECT_POINT_EQ(*midpoint.value(), (leaf::Point{0, 5}));
   leaf::CenterVein v{p, {0, 0}, {0, 10}, 1};
   auto cs = leaf::detail::makeCoordinateSystem(v);
   ASSERT_TRUE(cs.hasValue());
@@ -120,13 +112,11 @@ TEST(geometry, UnitTangentRegressionNormalAndDegenerate) {
   EXPECT_NEAR(tangent.value()->y, 1.0, 1e-12);
 
   const auto tooShort = leaf::detail::unitTangentRegression(path, 4.0, 4.2, 0.5);
-  EXPECT_FALSE(tooShort.hasValue());
-  EXPECT_EQ(errorCode(tooShort), leaf::ErrorCode::InvalidMeasurements);
+  expectMeasurementFailure(tooShort);
 
   const leaf::Path twoPoints{{0, 0}, {1, 0}};
   const auto insufficient = leaf::detail::unitTangentRegression(twoPoints, 0.0, 1.0, 0.1);
-  EXPECT_FALSE(insufficient.hasValue());
-  EXPECT_EQ(errorCode(insufficient), leaf::ErrorCode::InvalidMeasurements);
+  expectMeasurementFailure(insufficient);
 }
 
 TEST(geometry, UnitTangentRegressionOrientedByEndpointProgression) {
@@ -148,8 +138,18 @@ TEST(geometry, ContourRayHitsNearestSignedDirections) {
 TEST(geometry, ContourRayHitsParallelRayFails) {
   const leaf::Path contour{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}};
   const auto hits = leaf::detail::contourRayHits(contour, {0.5, 2.0}, {1, 0});
-  EXPECT_FALSE(hits.hasValue());
-  EXPECT_EQ(errorCode(hits), leaf::ErrorCode::InvalidMeasurements);
+  expectMeasurementFailure(hits);
+}
+
+TEST(geometry, ContourRayHitsOpenAndExplicitClosedSquareParity) {
+  const leaf::Path openSquare{{0, 0}, {2, 0}, {2, 2}, {0, 2}};
+  const leaf::Path closedSquare{{0, 0}, {2, 0}, {2, 2}, {0, 2}, {0, 0}};
+  const auto openHits = leaf::detail::contourRayHits(openSquare, {1, 0}, {1, 0});
+  const auto closedHits = leaf::detail::contourRayHits(closedSquare, {1, 0}, {1, 0});
+  ASSERT_TRUE(openHits.hasValue());
+  ASSERT_TRUE(closedHits.hasValue());
+  EXPECT_POINT_EQ(openHits.value()->first, closedHits.value()->first);
+  EXPECT_POINT_EQ(openHits.value()->second, closedHits.value()->second);
 }
 
 TEST(geometry, ContourRayHitsDeduplicatesVertexIntersection) {
@@ -174,8 +174,7 @@ TEST(geometry, SameSideContourArcRejectsOppositeSideTraversal) {
   const leaf::Path contour{{-2, 0}, {-2, 2}, {0, 4}, {2, 2}, {2, 0}, {-2, 0}};
   const auto arc = leaf::detail::sameSideContourArc(contour, {-2, 2}, {2, 2}, cs, {0, 0},
                                                     {0, 10}, 1e-9 * cs.scale);
-  EXPECT_FALSE(arc.hasValue());
-  EXPECT_EQ(errorCode(arc), leaf::ErrorCode::InvalidMeasurements);
+  expectMeasurementFailure(arc);
 }
 
 TEST(geometry, SameSideContourArcIgnoresGeometricallyIdenticalDuplicateRoutes) {
@@ -193,16 +192,59 @@ TEST(geometry, SameSideContourArcRejectsGeometricallyDistinctEqualValidArcs) {
                            {1, 3},  {2, 2},  {2, 0},  {-2, 0}};
   const auto arc = leaf::detail::sameSideContourArc(contour, {-2, 2}, {-2, 4}, cs, {0, 0},
                                                     {0, 10}, 1e-8);
-  EXPECT_FALSE(arc.hasValue());
-  EXPECT_EQ(errorCode(arc), leaf::ErrorCode::InvalidMeasurements);
+  expectMeasurementFailure(arc);
+}
+
+TEST(geometry, SameSideContourArcRejectsCollinearSeparatorOverlap) {
+  const leaf::CoordinateSystem cs = axisAlignedCs(10.0);
+  const leaf::Path contour{{-2, 0}, {-2, 2}, {-2, 4}, {-2, 0}};
+  const auto arc = leaf::detail::sameSideContourArc(contour, {-2, 2}, {-2, 4}, cs, {-2, 0},
+                                                    {-2, 10}, 1e-9 * cs.scale);
+  expectMeasurementFailure(arc);
 }
 
 TEST(geometry, UnitTangentRegressionRejectsSingleSegmentWindow) {
   const leaf::Path path{{0, 0}, {0, 10}, {0, 20}, {0, 30}};
   const auto tangent = leaf::detail::unitTangentRegression(path, 5.5, 6.5, 0.5);
-  EXPECT_FALSE(tangent.hasValue());
-  EXPECT_EQ(errorCode(tangent), leaf::ErrorCode::InvalidMeasurements);
+  expectMeasurementFailure(tangent);
 }
+
+struct TangentDistinctPointsCase {
+  std::string name;
+  leaf::Path path;
+  double s0;
+  double s1;
+  double minSpan;
+  bool expectSuccess;
+};
+
+class UnitTangentDistinctPointsTest : public ::testing::TestWithParam<TangentDistinctPointsCase> {};
+
+TEST_P(UnitTangentDistinctPointsTest, CountsCanonicalInWindowRepresentatives) {
+  const auto tangent =
+      leaf::detail::unitTangentRegression(GetParam().path, GetParam().s0, GetParam().s1,
+                                          GetParam().minSpan);
+  if (GetParam().expectSuccess) {
+    ASSERT_TRUE(tangent.hasValue());
+    EXPECT_NEAR(tangent.value()->x, 0.0, 1e-12);
+    EXPECT_GT(tangent.value()->y, 0.0);
+  } else {
+    expectMeasurementFailure(tangent);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    geometry, UnitTangentDistinctPointsTest,
+    ::testing::Values(
+        TangentDistinctPointsCase{"aab_two_unique", {{0, 0}, {0, 0}, {0, 5}}, 0.0, 5.0, 0.1,
+                                  false},
+        TangentDistinctPointsCase{"aababa_two_unique", {{0, 0}, {0, 0}, {0, 5}, {0, 0}, {0, 5}},
+                                  0.0, 10.0, 0.1, false},
+        TangentDistinctPointsCase{"three_unique_success", {{0, 0}, {0, 5}, {0, 10}}, 1.0, 9.0, 0.5,
+                                  true}),
+    [](const ::testing::TestParamInfo<TangentDistinctPointsCase>& info) {
+      return info.param.name;
+    });
 
 TEST(geometry, UnorientedAngleDegrees) {
   EXPECT_NEAR(leaf::detail::unorientedAngleDegrees({1, 0}, {1, 0}), 0.0, 1e-12);
