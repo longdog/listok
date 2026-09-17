@@ -2,6 +2,7 @@ include(GoogleTest)
 
 add_executable(leaf-core-tests
   unit/contracts_test.cpp
+  unit/geometry_test.cpp
 )
 
 target_compile_definitions(leaf-core-tests PRIVATE CMAKE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

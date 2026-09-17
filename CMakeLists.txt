@@ -29,7 +29,10 @@ add_library(leaf-core
   src/api/analyzer.cpp
   src/contracts/config.cpp
   src/contracts/version.cpp
+  src/geometry/contour_arc.cpp
   src/geometry/coordinate_system.cpp
+  src/geometry/intersection.cpp
+  src/geometry/polyline.cpp
   src/image/image.cpp
 )
 
