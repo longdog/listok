@@ -2,6 +2,8 @@
 
 #include "../image/resize.h"
 
+#include <algorithm>
+#include <cmath>
 #include <new>
 #include <stdexcept>
 
@@ -9,6 +11,13 @@
 
 namespace leaf::detail {
 namespace {
+
+constexpr int kIlluminationKernelDivisor = 16;
+
+int illuminationBackgroundKernelSize(int cols, int rows) noexcept {
+  const int estimate = (cols + rows) / kIlluminationKernelDivisor;
+  return std::max(3, estimate | 1);
+}
 
 cv::Mat viewToMat(const ImageView& view) {
   const int type = view.format == PixelFormat::Gray8   ? CV_8UC1
@@ -21,7 +30,7 @@ cv::Mat viewToMat(const ImageView& view) {
 
 cv::Mat toGray(const cv::Mat& source, PixelFormat format) {
   if (format == PixelFormat::Gray8) {
-    return source;
+    return source.clone();
   }
   cv::Mat gray;
   const int code = format == PixelFormat::RGB8 ? cv::COLOR_RGB2GRAY : cv::COLOR_RGBA2GRAY;
@@ -40,18 +49,22 @@ Photometry measurePhotometry(const cv::Mat& gray) {
 }
 
 cv::Mat normalizeIllumination(const cv::Mat& gray) {
+  cv::Mat grayFloat;
+  gray.convertTo(grayFloat, CV_32F);
   cv::Mat background;
-  const int kernel = std::max(3, ((gray.cols + gray.rows) / 16) | 1);
-  cv::GaussianBlur(gray, background, cv::Size(kernel, kernel), 0.0);
+  const int kernel = illuminationBackgroundKernelSize(gray.cols, gray.rows);
+  cv::GaussianBlur(grayFloat, background, cv::Size(kernel, kernel), 0.0);
   cv::Mat normalized;
-  cv::subtract(gray, background, normalized);
-  cv::add(normalized, cv::Scalar(128.0), normalized);
-  return normalized;
+  cv::subtract(grayFloat, background, normalized);
+  cv::add(normalized, cv::Scalar(128.0f), normalized);
+  cv::Mat result;
+  normalized.convertTo(result, CV_8U);
+  return result;
 }
 
 cv::Mat applyBlur(const cv::Mat& gray, int blurKernel) {
   if (blurKernel <= 1) {
-    return gray;
+    return gray.clone();
   }
   cv::Mat blurred;
   cv::GaussianBlur(gray, blurred, cv::Size(blurKernel, blurKernel), 0.0);
@@ -61,12 +74,12 @@ cv::Mat applyBlur(const cv::Mat& gray, int blurKernel) {
 cv::Mat binarize(const cv::Mat& gray, const PreprocessConfig& config) {
   cv::Mat binary;
   if (config.adaptiveThreshold) {
-    const int blockSize = std::max(3, (config.blurKernel * 6) | 1);
-    cv::adaptiveThreshold(gray, binary, 255, cv::ADAPTIVE_THRESH_GAUSSIAN_C, cv::THRESH_BINARY,
-                          blockSize, 2.0);
+    cv::adaptiveThreshold(gray, binary, 255, cv::ADAPTIVE_THRESH_GAUSSIAN_C,
+                          cv::THRESH_BINARY_INV, config.adaptiveThresholdBlockSize,
+                          config.adaptiveThresholdC);
     return binary;
   }
-  cv::threshold(gray, binary, 0.0, 255.0, cv::THRESH_BINARY | cv::THRESH_OTSU);
+  cv::threshold(gray, binary, 0.0, 255.0, cv::THRESH_BINARY_INV | cv::THRESH_OTSU);
   return binary;
 }
 
@@ -78,6 +91,11 @@ Outcome<PreprocessResult> preprocessFailure(ErrorCode code, const char* message)
 
 Outcome<PreprocessResult> preprocess(ImageView view, const PreprocessConfig& config) noexcept {
   try {
+    if (!isValidPreprocessConfig(config)) {
+      return Outcome<PreprocessResult>::failure(
+          {ErrorCode::InvalidConfigValue, Stage::Config, "preprocess"});
+    }
+
     const auto validated = validateImage(view);
     if (!validated.hasValue()) {
       return Outcome<PreprocessResult>::failure(*validated.error());
@@ -108,7 +126,7 @@ Outcome<PreprocessResult> preprocess(ImageView view, const PreprocessConfig& con
         photometry.meanLuminance >= config.acceptableMeanLuminanceMin &&
         photometry.meanLuminance <= config.acceptableMeanLuminanceMax;
 
-    cv::Mat enhanced = gray;
+    cv::Mat enhanced = gray.clone();
     if (config.normalizeIllumination) {
       enhanced = normalizeIllumination(enhanced);
     }

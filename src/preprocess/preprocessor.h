@@ -22,6 +22,9 @@ struct PreprocessResult {
   Photometry photometry;
 };
 
+// Photometry is measured on the resized working grayscale before illumination
+// normalization, blur, or thresholding. `gray` and `binary` are always owned
+// buffers that do not alias the caller's input pixels.
 Outcome<PreprocessResult> preprocess(ImageView view, const PreprocessConfig& config) noexcept;
 
 }  // namespace leaf::detail

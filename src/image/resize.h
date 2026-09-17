@@ -10,6 +10,6 @@ namespace leaf::detail {
 ResizeTransform computeResizeTransform(std::int32_t sourceWidth, std::int32_t sourceHeight,
                                        int targetMaxDimension) noexcept;
 
-cv::Mat resizeMat(const cv::Mat& source, const ResizeTransform& transform) noexcept;
+cv::Mat resizeMat(const cv::Mat& source, const ResizeTransform& transform);
 
 }  // namespace leaf::detail

@@ -18,6 +18,8 @@ struct PreprocessConfig {
   bool normalizeIllumination{true};
   int blurKernel{5};
   bool adaptiveThreshold{false};
+  int adaptiveThresholdBlockSize{31};
+  double adaptiveThresholdC{2.0};
   double minProcessLuminanceStdDev{8};
   double minAcceptableLuminanceStdDev{12};
   double processMeanLuminanceMin{10};
@@ -78,6 +80,7 @@ struct AnalyzerConfig {
 };
 
 AnalyzerConfig defaultAnalyzerConfig() noexcept;
+bool isValidPreprocessConfig(const PreprocessConfig& preprocess) noexcept;
 Outcome<AnalyzerConfig> validateConfig(AnalyzerConfig value) noexcept;
 
 }  // namespace leaf

@@ -36,7 +36,7 @@ ResizeTransform computeResizeTransform(std::int32_t sourceWidth, std::int32_t so
   return transform;
 }
 
-cv::Mat resizeMat(const cv::Mat& source, const ResizeTransform& transform) noexcept {
+cv::Mat resizeMat(const cv::Mat& source, const ResizeTransform& transform) {
   if (source.cols == transform.workingWidth && source.rows == transform.workingHeight) {
     return source;
   }

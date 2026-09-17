@@ -66,6 +66,12 @@ TEST(Contracts, RejectsInvalidScoreRanges) {
   EXPECT_EQ(result.error()->stage, leaf::Stage::Score);
 }
 
+TEST(Contracts, DefaultsIncludeAdaptiveThresholdFields) {
+  const leaf::AnalyzerConfig config{};
+  EXPECT_EQ(config.preprocess.adaptiveThresholdBlockSize, 31);
+  EXPECT_DOUBLE_EQ(config.preprocess.adaptiveThresholdC, 2.0);
+}
+
 TEST(Contracts, RejectsEvenBlurKernel) {
   auto config = validConfig();
   config.preprocess.blurKernel = 4;
@@ -73,6 +79,30 @@ TEST(Contracts, RejectsEvenBlurKernel) {
   ASSERT_FALSE(result.hasValue());
   EXPECT_EQ(errorCode(result), leaf::ErrorCode::InvalidConfigValue);
   EXPECT_EQ(result.error()->stage, leaf::Stage::Config);
+}
+
+TEST(Contracts, RejectsEvenAdaptiveThresholdBlockSize) {
+  auto config = validConfig();
+  config.preprocess.adaptiveThreshold = false;
+  config.preprocess.adaptiveThresholdBlockSize = 30;
+  const auto result = leaf::validateConfig(config);
+  ASSERT_FALSE(result.hasValue());
+  EXPECT_EQ(errorCode(result), leaf::ErrorCode::InvalidConfigValue);
+}
+
+TEST(Contracts, RejectsAdaptiveThresholdCOutOfRange) {
+  auto config = validConfig();
+  config.preprocess.adaptiveThresholdC = 64.1;
+  const auto result = leaf::validateConfig(config);
+  ASSERT_FALSE(result.hasValue());
+  EXPECT_EQ(errorCode(result), leaf::ErrorCode::InvalidConfigValue);
+}
+
+TEST(Contracts, IsValidPreprocessConfigMatchesValidateConfig) {
+  auto config = validConfig().preprocess;
+  EXPECT_TRUE(leaf::isValidPreprocessConfig(config));
+  config.adaptiveThresholdBlockSize = 2;
+  EXPECT_FALSE(leaf::isValidPreprocessConfig(config));
 }
 
 TEST(Contracts, RejectsEvenVeinThresholdBlockSize) {

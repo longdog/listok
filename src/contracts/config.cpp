@@ -35,6 +35,14 @@ bool validatePreprocess(const PreprocessConfig& preprocess) noexcept {
   if (!inClosedRange(preprocess.blurKernel, 1, 31) || !isOddInt(preprocess.blurKernel)) {
     return false;
   }
+  if (!inClosedRange(preprocess.adaptiveThresholdBlockSize, 3, 255) ||
+      !isOddInt(preprocess.adaptiveThresholdBlockSize)) {
+    return false;
+  }
+  if (!isFinite(preprocess.adaptiveThresholdC) ||
+      !inClosedRange(preprocess.adaptiveThresholdC, -64.0, 64.0)) {
+    return false;
+  }
   if (!isFinite(preprocess.minProcessLuminanceStdDev) ||
       !isFinite(preprocess.minAcceptableLuminanceStdDev) ||
       preprocess.minProcessLuminanceStdDev <= 0.0 ||
@@ -145,6 +153,10 @@ bool validateScoreRanges(const std::array<ScoreRange, 5>& ranges, Error& error) 
 }
 
 }  // namespace
+
+bool isValidPreprocessConfig(const PreprocessConfig& preprocess) noexcept {
+  return validatePreprocess(preprocess);
+}
 
 Outcome<AnalyzerConfig> validateConfig(AnalyzerConfig value) noexcept {
   if (!validatePreprocess(value.preprocess)) {
