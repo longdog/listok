@@ -92,6 +92,43 @@ leaf::DetectionConfig detectionConfig(double mergeRadius, double minBranchNorm) 
   return config;
 }
 
+const leaf::detail::SkeletonNode* nodeAt(const leaf::detail::SkeletonGraph& graph,
+                                         leaf::Point point) {
+  for (const auto& node : graph.nodes) {
+    if (node.point == point) {
+      return &node;
+    }
+  }
+  return nullptr;
+}
+
+const leaf::detail::SkeletonNode* nodeById(const leaf::detail::SkeletonGraph& graph,
+                                           std::uint32_t id) {
+  for (const auto& node : graph.nodes) {
+    if (node.id == id) {
+      return &node;
+    }
+  }
+  return nullptr;
+}
+
+void expectSimpleUndirected(const leaf::detail::SkeletonGraph& graph) {
+  for (const auto& node : graph.nodes) {
+    std::vector<std::uint32_t> seen;
+    for (std::uint32_t edge : node.edges) {
+      EXPECT_NE(edge, node.id) << "self-loop at id " << node.id;
+      EXPECT_TRUE(std::find(seen.begin(), seen.end(), edge) == seen.end())
+          << "duplicate edge " << node.id << " -> " << edge;
+      seen.push_back(edge);
+      const auto* neighbor = nodeById(graph, edge);
+      ASSERT_NE(neighbor, nullptr) << "dangling edge " << node.id << " -> " << edge;
+      EXPECT_TRUE(std::find(neighbor->edges.begin(), neighbor->edges.end(), node.id) !=
+                  neighbor->edges.end())
+          << "missing reverse edge " << edge << " -> " << node.id;
+    }
+  }
+}
+
 }  // namespace
 
 TEST(skeleton, ThinsSimultaneouslyAndBuildsStableGraph) {
@@ -287,9 +324,24 @@ TEST(skeleton, MergesNearbyBranchNodesByDistanceThenYXId) {
   const auto merged =
       leaf::detail::pruneAndMerge(graph, centerWithLength(1000.0), detectionConfig(4.0, 1e-9));
   ASSERT_TRUE(merged.hasValue());
-  const auto kept = nodeCoordinates(*merged.value());
-  EXPECT_TRUE(std::find(kept.begin(), kept.end(), leaf::Point{1, 2}) != kept.end());
-  EXPECT_TRUE(std::find(kept.begin(), kept.end(), leaf::Point{3, 2}) == kept.end());
+  ASSERT_NE(merged.value(), nullptr);
+  const auto& result = *merged.value();
+
+  ASSERT_EQ(result.nodes.size(), 5u);
+  const auto* survivor = nodeAt(result, {1, 2});
+  ASSERT_NE(survivor, nullptr);
+  EXPECT_EQ(nodeAt(result, {3, 2}), nullptr);
+
+  const std::vector<leaf::Point> endpoints{{1, 0}, {0, 2}, {4, 2}, {3, 4}};
+  ASSERT_EQ(survivor->edges.size(), 4u);
+  for (const auto& point : endpoints) {
+    const auto* endpoint = nodeAt(result, point);
+    ASSERT_NE(endpoint, nullptr) << "missing endpoint " << point.x << "," << point.y;
+    EXPECT_TRUE(std::find(survivor->edges.begin(), survivor->edges.end(), endpoint->id) !=
+                survivor->edges.end());
+    EXPECT_EQ(endpoint->edges, (std::vector<std::uint32_t>{survivor->id}));
+  }
+  expectSimpleUndirected(result);
 }
 
 TEST(skeleton, PruneRemovesBorderTipsOfThinnedPlus) {
@@ -312,4 +364,84 @@ TEST(skeleton, DoesNotAssumeEightConnectedPlusIsFourConnected) {
   ASSERT_TRUE(graph.hasValue());
   ASSERT_EQ(graph.value()->nodes.size(), 5u);
   EXPECT_EQ(graph.value()->nodes[0].edges, (std::vector<std::uint32_t>{3, 2, 1}));
+}
+
+TEST(skeleton, PruneLeavesCycleUnchanged) {
+  const cv::Mat loop = binaryMat(
+      7, 7,
+      {{1, 1}, {2, 1}, {3, 1}, {4, 1}, {5, 1}, {1, 2}, {5, 2}, {1, 3}, {5, 3}, {1, 4}, {5, 4},
+       {1, 5}, {2, 5}, {3, 5}, {4, 5}, {5, 5}});
+  const auto graph = leaf::detail::buildSkeletonGraph(loop);
+  ASSERT_TRUE(graph.hasValue());
+  ASSERT_EQ(graph.value()->nodes.size(), 16u);
+  const std::string before = serializeGraph(*graph.value());
+  const auto pruned =
+      leaf::detail::pruneAndMerge(*graph.value(), centerWithLength(100.0), detectionConfig(0.0, 1.0));
+  ASSERT_TRUE(pruned.hasValue());
+  EXPECT_EQ(serializeGraph(*pruned.value()), before);
+  expectSimpleUndirected(*pruned.value());
+}
+
+TEST(skeleton, PruneLeavesIsolatedDegreeZeroUnchanged) {
+  const cv::Mat isolated = binaryMat(5, 5, {{2, 2}});
+  const auto graph = leaf::detail::buildSkeletonGraph(isolated);
+  ASSERT_TRUE(graph.hasValue());
+  ASSERT_EQ(graph.value()->nodes.size(), 1u);
+  EXPECT_TRUE(graph.value()->nodes[0].edges.empty());
+  const auto pruned =
+      leaf::detail::pruneAndMerge(*graph.value(), centerWithLength(100.0), detectionConfig(0.0, 1.0));
+  ASSERT_TRUE(pruned.hasValue());
+  ASSERT_EQ(pruned.value()->nodes.size(), 1u);
+  EXPECT_EQ(pruned.value()->nodes[0].point, (leaf::Point{2, 2}));
+  EXPECT_TRUE(pruned.value()->nodes[0].edges.empty());
+}
+
+TEST(skeleton, PruneRemovesShortIsolatedLineStrictlyBelowThreshold) {
+  const cv::Mat line = binaryMat(5, 7, {{2, 2}, {3, 2}, {4, 2}});
+  const auto graph = leaf::detail::buildSkeletonGraph(line);
+  ASSERT_TRUE(graph.hasValue());
+  ASSERT_EQ(graph.value()->nodes.size(), 3u);
+  // Arc length of the three-pixel line is 2.0. Prune uses strict `< threshold`.
+  const auto kept = leaf::detail::pruneAndMerge(*graph.value(), centerWithLength(10.0),
+                                                detectionConfig(0.0, 0.20));
+  ASSERT_TRUE(kept.hasValue());
+  EXPECT_EQ(nodeCoordinates(*kept.value()),
+            std::vector<leaf::Point>({{2, 2}, {3, 2}, {4, 2}}));
+
+  const auto removed = leaf::detail::pruneAndMerge(*graph.value(), centerWithLength(10.0),
+                                                   detectionConfig(0.0, 0.21));
+  ASSERT_TRUE(removed.hasValue());
+  EXPECT_TRUE(removed.value()->nodes.empty());
+}
+
+TEST(skeleton, TAndCrossExposeEightConnectedShortcutContract) {
+  // Secondary-vein stages must treat 8-connectivity as the graph contract:
+  // pixels adjacent to a geometric T/cross are also degree >= 3 because of
+  // diagonal shortcuts, and edges follow N,NE,E,SE,S,SW,W,NW order.
+  const cv::Mat tee =
+      binaryMat(7, 7, {{1, 1}, {2, 1}, {3, 1}, {4, 1}, {5, 1}, {3, 2}, {3, 3}, {3, 4}, {3, 5}});
+  const auto teeGraph = leaf::detail::buildSkeletonGraph(tee);
+  ASSERT_TRUE(teeGraph.hasValue());
+  ASSERT_EQ(teeGraph.value()->nodes.size(), 9u);
+  EXPECT_EQ(teeGraph.value()->nodes[1].edges, (std::vector<std::uint32_t>{2, 5, 0}));
+  EXPECT_EQ(teeGraph.value()->nodes[2].edges, (std::vector<std::uint32_t>{3, 5, 1}));
+  EXPECT_EQ(teeGraph.value()->nodes[3].edges, (std::vector<std::uint32_t>{4, 5, 2}));
+  EXPECT_EQ(teeGraph.value()->nodes[5].edges, (std::vector<std::uint32_t>{2, 3, 6, 1}));
+  EXPECT_EQ(teeGraph.value()->nodes[1].edges.size(), 3u);
+  EXPECT_EQ(teeGraph.value()->nodes[2].edges.size(), 3u);
+  EXPECT_EQ(teeGraph.value()->nodes[5].edges.size(), 4u);
+  expectSimpleUndirected(*teeGraph.value());
+
+  const cv::Mat cross =
+      binaryMat(7, 7, {{3, 1}, {3, 2}, {1, 3}, {2, 3}, {3, 3}, {4, 3}, {5, 3}, {3, 4}, {3, 5}});
+  const auto crossGraph = leaf::detail::buildSkeletonGraph(cross);
+  ASSERT_TRUE(crossGraph.hasValue());
+  ASSERT_EQ(crossGraph.value()->nodes.size(), 9u);
+  EXPECT_EQ(crossGraph.value()->nodes[1].edges, (std::vector<std::uint32_t>{0, 5, 4, 3}));
+  EXPECT_EQ(crossGraph.value()->nodes[3].edges, (std::vector<std::uint32_t>{1, 4, 7, 2}));
+  EXPECT_EQ(crossGraph.value()->nodes[4].edges, (std::vector<std::uint32_t>{1, 5, 7, 3}));
+  EXPECT_EQ(crossGraph.value()->nodes[5].edges, (std::vector<std::uint32_t>{6, 7, 4, 1}));
+  EXPECT_EQ(crossGraph.value()->nodes[7].edges, (std::vector<std::uint32_t>{4, 5, 8, 3}));
+  EXPECT_EQ(crossGraph.value()->nodes[4].edges.size(), 4u);
+  expectSimpleUndirected(*crossGraph.value());
 }

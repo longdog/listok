@@ -176,43 +176,6 @@ struct UnionFind {
   }
 };
 
-struct MergeCandidate {
-  double distance{};
-  double y0{};
-  double x0{};
-  std::uint32_t id0{};
-  double y1{};
-  double x1{};
-  std::uint32_t id1{};
-  int a{};
-  int b{};
-};
-
-bool mergeCandidateLess(const MergeCandidate& left, const MergeCandidate& right) {
-  if (left.distance != right.distance) {
-    return left.distance < right.distance;
-  }
-  if (left.y0 != right.y0) {
-    return left.y0 < right.y0;
-  }
-  if (left.x0 != right.x0) {
-    return left.x0 < right.x0;
-  }
-  if (left.id0 != right.id0) {
-    return left.id0 < right.id0;
-  }
-  if (left.y1 != right.y1) {
-    return left.y1 < right.y1;
-  }
-  if (left.x1 != right.x1) {
-    return left.x1 < right.x1;
-  }
-  if (left.id1 != right.id1) {
-    return left.id1 < right.id1;
-  }
-  return left.b < right.b;
-}
-
 int survivorOf(const SkeletonGraph& graph, UnionFind& ufind, int index) {
   const int root = ufind.find(index);
   int survivor = root;
@@ -243,40 +206,19 @@ void mergeBranches(SkeletonGraph& graph, double radius) {
     }
   }
 
-  std::vector<MergeCandidate> candidates;
+  // Pair order does not affect the union: every in-radius branch pair is united,
+  // and the survivor is chosen by Y/X/id, not by candidate ranking.
+  UnionFind ufind(static_cast<int>(graph.nodes.size()));
   for (std::size_t i = 0; i < branches.size(); ++i) {
     for (std::size_t j = i + 1; j < branches.size(); ++j) {
       const int a = branches[i];
       const int b = branches[j];
       const SkeletonNode& left = graph.nodes[static_cast<std::size_t>(a)];
       const SkeletonNode& right = graph.nodes[static_cast<std::size_t>(b)];
-      const double distance = pointDistance(left.point, right.point);
-      if (distance > radius) {
-        continue;
+      if (pointDistance(left.point, right.point) <= radius) {
+        ufind.unite(a, b);
       }
-      MergeCandidate candidate;
-      candidate.distance = distance;
-      const bool leftFirst = pointLess(left.point, right.point) ||
-                             (left.point.x == right.point.x && left.point.y == right.point.y &&
-                              left.id <= right.id);
-      const SkeletonNode& first = leftFirst ? left : right;
-      const SkeletonNode& second = leftFirst ? right : left;
-      candidate.y0 = first.point.y;
-      candidate.x0 = first.point.x;
-      candidate.id0 = first.id;
-      candidate.y1 = second.point.y;
-      candidate.x1 = second.point.x;
-      candidate.id1 = second.id;
-      candidate.a = a;
-      candidate.b = b;
-      candidates.push_back(candidate);
     }
-  }
-  std::sort(candidates.begin(), candidates.end(), mergeCandidateLess);
-
-  UnionFind ufind(static_cast<int>(graph.nodes.size()));
-  for (const MergeCandidate& candidate : candidates) {
-    ufind.unite(candidate.a, candidate.b);
   }
 
   std::vector<int> remap(graph.nodes.size());
