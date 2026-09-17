@@ -14,6 +14,6 @@ target_link_libraries(leaf-core-tests
 
 gtest_discover_tests(
   leaf-core-tests
-  TEST_PREFIX "contracts."
-  PROPERTIES LABELS "unit;contracts"
+  TEST_PREFIX ""
+  PROPERTIES LABELS "unit"
 )

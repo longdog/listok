@@ -26,8 +26,10 @@ leaf_find_nlohmann_json()
 leaf_find_opencv()
 
 add_library(leaf-core
+  src/api/analyzer.cpp
   src/contracts/config.cpp
   src/contracts/version.cpp
+  src/geometry/coordinate_system.cpp
   src/image/image.cpp
 )
 

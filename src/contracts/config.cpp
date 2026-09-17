@@ -1,10 +1,6 @@
-#include <leaf/analyzer.h>
 #include <leaf/config.h>
 
 #include <cmath>
-#include <limits>
-#include <memory>
-#include <utility>
 
 namespace leaf {
 namespace {
@@ -30,11 +26,6 @@ bool inOpenRange(double value, double minValue, double maxValue) noexcept {
 Outcome<AnalyzerConfig> configFailure(const std::string& message) noexcept {
   return Outcome<AnalyzerConfig>::failure(
       {ErrorCode::InvalidConfigValue, Stage::Config, message});
-}
-
-Outcome<AnalyzerConfig> scoreFailure(const std::string& message) noexcept {
-  return Outcome<AnalyzerConfig>::failure(
-      {ErrorCode::InvalidScoreRanges, Stage::Score, message});
 }
 
 bool validatePreprocess(const PreprocessConfig& preprocess) noexcept {
@@ -118,34 +109,39 @@ bool validateQuality(const QualityConfig& quality, double minimumStageConfidence
   return true;
 }
 
-Outcome<AnalyzerConfig> validateScoreRanges(const std::array<ScoreRange, 5>& ranges) noexcept {
+bool validateScoreRanges(const std::array<ScoreRange, 5>& ranges, Error& error) noexcept {
   for (std::size_t index = 0; index < ranges.size(); ++index) {
     const ScoreRange& range = ranges[index];
     const int expectedScore = static_cast<int>(index) + 1;
     if (range.score != expectedScore || !isFinite(range.min)) {
-      return scoreFailure("score identity");
+      error = {ErrorCode::InvalidScoreRanges, Stage::Score, "score identity"};
+      return false;
     }
     if (index == 0) {
       if (range.min != 0.0) {
-        return scoreFailure("first min");
+        error = {ErrorCode::InvalidScoreRanges, Stage::Score, "first min"};
+        return false;
       }
     } else if (range.min != ranges[index - 1].max) {
-      return scoreFailure("contiguity");
+      error = {ErrorCode::InvalidScoreRanges, Stage::Score, "contiguity"};
+      return false;
     }
 
     const bool isLast = index == ranges.size() - 1;
     if (isLast) {
       if (range.max.has_value()) {
-        return scoreFailure("open top");
+        error = {ErrorCode::InvalidScoreRanges, Stage::Score, "open top"};
+        return false;
       }
       continue;
     }
 
     if (!range.max.has_value() || !isFinite(*range.max) || *range.max <= range.min) {
-      return scoreFailure("half-open range");
+      error = {ErrorCode::InvalidScoreRanges, Stage::Score, "half-open range"};
+      return false;
     }
   }
-  return Outcome<AnalyzerConfig>::success(AnalyzerConfig{});
+  return true;
 }
 
 }  // namespace
@@ -164,55 +160,12 @@ Outcome<AnalyzerConfig> validateConfig(AnalyzerConfig value) noexcept {
     return configFailure("quality");
   }
 
-  const auto scoreValidation = validateScoreRanges(value.scoreRanges);
-  if (!scoreValidation.hasValue()) {
-    return scoreValidation;
+  Error scoreError;
+  if (!validateScoreRanges(value.scoreRanges, scoreError)) {
+    return Outcome<AnalyzerConfig>::failure(scoreError);
   }
 
   return Outcome<AnalyzerConfig>::success(std::move(value));
-}
-
-class Analyzer::Impl {};
-
-Analyzer::Analyzer(std::unique_ptr<Impl> impl) noexcept : impl_(std::move(impl)) {}
-
-Analyzer::~Analyzer() = default;
-
-Analyzer::Analyzer(Analyzer&&) noexcept = default;
-
-Analyzer& Analyzer::operator=(Analyzer&&) noexcept = default;
-
-Outcome<std::unique_ptr<Analyzer>> Analyzer::create(AnalyzerConfig config) noexcept {
-  const auto validated = validateConfig(std::move(config));
-  if (!validated.hasValue()) {
-    return Outcome<std::unique_ptr<Analyzer>>::failure(*validated.error());
-  }
-  return Outcome<std::unique_ptr<Analyzer>>::success(
-      std::unique_ptr<Analyzer>(new Analyzer(std::make_unique<Impl>())));
-}
-
-Outcome<AnalysisResult> Analyzer::analyze(ImageView image) const noexcept {
-  const auto validatedImage = validateImage(image);
-  if (!validatedImage.hasValue()) {
-    return Outcome<AnalysisResult>::failure(*validatedImage.error());
-  }
-  return Outcome<AnalysisResult>::failure(
-      {ErrorCode::InternalError, Stage::Internal, "analyzer pipeline is not implemented"});
-}
-
-BatchResult Analyzer::analyzeBatch(std::span<const ImageView> images) const noexcept {
-  BatchResult batch;
-  batch.versions = defaultVersions();
-  batch.total = images.size();
-  batch.valid = false;
-  batch.score = 0;
-  for (const ImageView& image : images) {
-    batch.items.push_back(BatchItem{analyze(image)});
-    if (batch.items.back().outcome.hasValue()) {
-      ++batch.successful;
-    }
-  }
-  return batch;
 }
 
 }  // namespace leaf

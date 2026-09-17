@@ -59,12 +59,22 @@ struct QualityConfig {
   double minimumMeasurementConfidence{.50};
 };
 
+constexpr std::array<ScoreRange, 5> defaultScoreRanges() noexcept {
+  return std::array<ScoreRange, 5>{
+      ScoreRange{0.000, 0.040, 1},
+      ScoreRange{0.040, 0.045, 2},
+      ScoreRange{0.045, 0.050, 3},
+      ScoreRange{0.050, 0.055, 4},
+      ScoreRange{0.055, std::nullopt, 5},
+  };
+}
+
 struct AnalyzerConfig {
   PreprocessConfig preprocess;
   DetectionConfig detection;
   MeasurementConfig measurement;
   QualityConfig quality;
-  std::array<ScoreRange, 5> scoreRanges{};
+  std::array<ScoreRange, 5> scoreRanges{defaultScoreRanges()};
 };
 
 AnalyzerConfig defaultAnalyzerConfig() noexcept;
