@@ -34,6 +34,8 @@ add_library(leaf-core
   src/geometry/intersection.cpp
   src/geometry/polyline.cpp
   src/image/image.cpp
+  src/image/resize.cpp
+  src/preprocess/preprocessor.cpp
 )
 
 add_library(leaf::core ALIAS leaf-core)
@@ -44,9 +46,17 @@ target_include_directories(leaf-core
     $<INSTALL_INTERFACE:include>
 )
 
+target_include_directories(leaf-core
+  PRIVATE
+    ${OpenCV_INCLUDE_DIRS}
+)
+
 target_link_libraries(leaf-core
   PUBLIC
     nlohmann_json::nlohmann_json
+  PRIVATE
+    opencv_core
+    opencv_imgproc
 )
 
 target_compile_features(leaf-core PUBLIC cxx_std_20)
