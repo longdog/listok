@@ -36,6 +36,8 @@ add_library(leaf-core
   src/image/image.cpp
   src/image/resize.cpp
   src/preprocess/preprocessor.cpp
+  src/skeleton/graph.cpp
+  src/skeleton/thinning.cpp
 )
 
 add_library(leaf::core ALIAS leaf-core)
