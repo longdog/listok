@@ -15,7 +15,43 @@ constexpr double kVertexMatchTolerance = 1e-9;
 struct ContourArc {
   double length{0};
   bool valid{false};
+  std::vector<Point> vertices;
 };
+
+std::vector<Point> canonicalRoute(const std::vector<Point>& vertices, double tolerance) noexcept {
+  std::vector<Point> canonical;
+  for (const Point& vertex : vertices) {
+    if (canonical.empty() || !nearlyEqual(canonical.back(), vertex, tolerance)) {
+      canonical.push_back(vertex);
+    }
+  }
+  return canonical;
+}
+
+bool sameRoute(const std::vector<Point>& left, const std::vector<Point>& right,
+               double tolerance) noexcept {
+  const auto canonicalLeft = canonicalRoute(left, tolerance);
+  const auto canonicalRight = canonicalRoute(right, tolerance);
+  if (canonicalLeft.size() != canonicalRight.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < canonicalLeft.size(); ++i) {
+    if (!nearlyEqual(canonicalLeft[i], canonicalRight[i], tolerance)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool hasRoute(const std::vector<std::vector<Point>>& routes, const std::vector<Point>& candidate,
+              double tolerance) noexcept {
+  for (const std::vector<Point>& route : routes) {
+    if (sameRoute(route, candidate, tolerance)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 bool segmentsIntersectInterior(Point a, Point b, Point c, Point d, double epsilon) noexcept {
   const Point r = subtract(b, a);
@@ -118,9 +154,10 @@ ContourArc buildArc(const Path& contour, std::size_t fromIndex, std::size_t toIn
   }
 
   ContourArc arc;
-  arc.length = polylineLength(vertices);
-  arc.valid = arcMaintainsSide(vertices, cs, requiredSign, tolerance) &&
-              !arcCrossesSeparator(vertices, baseSeparator, apexSeparator, tolerance);
+  arc.vertices = std::move(vertices);
+  arc.length = polylineLength(arc.vertices);
+  arc.valid = arcMaintainsSide(arc.vertices, cs, requiredSign, tolerance) &&
+              !arcCrossesSeparator(arc.vertices, baseSeparator, apexSeparator, tolerance);
   return arc;
 }
 
@@ -149,33 +186,44 @@ Outcome<double> sameSideContourArc(const Path& contour, Point from, Point to,
         {ErrorCode::InvalidMeasurements, Stage::Measurements, "opposite side endpoints"});
   }
 
-  std::vector<double> validLengths;
+  struct UniqueValidArc {
+    double length{0};
+    std::vector<Point> route;
+  };
+
+  std::vector<UniqueValidArc> validArcs;
+  std::vector<std::vector<Point>> canonicalRoutes;
   for (std::size_t fromIndex : fromIndices) {
     for (std::size_t toIndex : toIndices) {
       if (fromIndex == toIndex) {
-        validLengths.push_back(0.0);
         continue;
       }
       for (int step : {1, -1}) {
         const ContourArc arc =
             buildArc(contour, fromIndex, toIndex, step, cs, baseSeparator, apexSeparator, tolerance);
-        if (arc.valid) {
-          validLengths.push_back(arc.length);
+        if (!arc.valid || hasRoute(canonicalRoutes, arc.vertices, tolerance)) {
+          continue;
         }
+        canonicalRoutes.push_back(canonicalRoute(arc.vertices, tolerance));
+        validArcs.push_back({arc.length, canonicalRoutes.back()});
       }
     }
   }
 
-  if (validLengths.empty()) {
+  if (validArcs.empty()) {
     return Outcome<double>::failure(
         {ErrorCode::InvalidMeasurements, Stage::Measurements, "no valid arc"});
   }
 
-  const double minimum =
-      *std::min_element(validLengths.begin(), validLengths.end());
+  const double minimum = std::min_element(
+      validArcs.begin(), validArcs.end(),
+      [](const UniqueValidArc& left, const UniqueValidArc& right) {
+        return left.length < right.length;
+      })->length;
+
   int equalMinimumCount = 0;
-  for (double arcLength : validLengths) {
-    if (nearlyEqual(arcLength, minimum, equalityTolerance)) {
+  for (const UniqueValidArc& arc : validArcs) {
+    if (nearlyEqual(arc.length, minimum, equalityTolerance)) {
       ++equalMinimumCount;
     }
   }

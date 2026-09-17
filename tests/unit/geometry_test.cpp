@@ -60,7 +60,7 @@ leaf::CoordinateSystem axisAlignedCs(double scale) {
 
 }  // namespace
 
-TEST(Geometry, ArcTransformAndAmbiguousArc) {
+TEST(geometry, ArcTransformAndAmbiguousArc) {
   leaf::Path p{{0, 0}, {0, 2}, {0, 10}};
   EXPECT_POINT_EQ(*leaf::detail::pointAtArc(p, 5).value(), (leaf::Point{0, 5}));
   leaf::CenterVein v{p, {0, 0}, {0, 10}, 1};
@@ -69,13 +69,14 @@ TEST(Geometry, ArcTransformAndAmbiguousArc) {
   auto q = cs.value()->normalizedToImage(cs.value()->imageToNormalized({3.25, 7.5}));
   EXPECT_NEAR(q.x, 3.25, 1e-8);
   EXPECT_NEAR(q.y, 7.5, 1e-8);
-  EXPECT_EQ(errorCode(leaf::detail::sameSideContourArc(
-                {{-1, 0}, {-1, 1}, {0, 2}, {1, 1}, {1, 0}, {-1, 0}}, {-1, 1}, {-1, 0},
-                *cs.value(), {0, 0}, {0, 10}, 1e-8)),
-            leaf::ErrorCode::InvalidMeasurements);
+  const auto arc = leaf::detail::sameSideContourArc(
+      {{-1, 0}, {-1, 1}, {0, 2}, {1, 1}, {1, 0}, {-1, 0}}, {-1, 1}, {-1, 0}, *cs.value(),
+      {0, 0}, {0, 10}, 1e-8);
+  ASSERT_TRUE(arc.hasValue());
+  EXPECT_NEAR(*arc.value(), 1.0, 1e-12);
 }
 
-TEST(Geometry, ArcLengthAndInterpolation) {
+TEST(geometry, ArcLengthAndInterpolation) {
   const leaf::Path path{{0, 0}, {3, 0}, {3, 4}};
   EXPECT_DOUBLE_EQ(leaf::detail::arcLength(path), 7.0);
   EXPECT_POINT_EQ(*leaf::detail::pointAtArc(path, 0).value(), (leaf::Point{0, 0}));
@@ -86,13 +87,13 @@ TEST(Geometry, ArcLengthAndInterpolation) {
   EXPECT_FALSE(leaf::detail::pointAtArc(path, 7.1).hasValue());
 }
 
-TEST(Geometry, ArcLengthWithDuplicatePoints) {
+TEST(geometry, ArcLengthWithDuplicatePoints) {
   const leaf::Path path{{0, 0}, {0, 0}, {0, 3}};
   EXPECT_DOUBLE_EQ(leaf::detail::arcLength(path), 3.0);
   EXPECT_POINT_EQ(*leaf::detail::pointAtArc(path, 1.5).value(), (leaf::Point{0, 1.5}));
 }
 
-TEST(Geometry, CoordinateRoundTripWithinTolerance) {
+TEST(geometry, CoordinateRoundTripWithinTolerance) {
   leaf::CenterVein vein{{{-2, 1}, {0, 4}, {3, 9}}, {-2, 1}, {3, 9}, 1};
   const auto cs = leaf::detail::makeCoordinateSystem(vein);
   ASSERT_TRUE(cs.hasValue());
@@ -103,7 +104,7 @@ TEST(Geometry, CoordinateRoundTripWithinTolerance) {
   expectPointNear(roundTrip, image, 1e-9 * scale);
 }
 
-TEST(Geometry, MakeCoordinateSystemRejectsDegenerateVein) {
+TEST(geometry, MakeCoordinateSystemRejectsDegenerateVein) {
   leaf::CenterVein vein{{{0, 0}, {0, 0}}, {0, 0}, {0, 0}, 1};
   const auto cs = leaf::detail::makeCoordinateSystem(vein);
   ASSERT_FALSE(cs.hasValue());
@@ -111,7 +112,7 @@ TEST(Geometry, MakeCoordinateSystemRejectsDegenerateVein) {
   EXPECT_EQ(cs.error()->stage, leaf::Stage::CoordinateSystem);
 }
 
-TEST(Geometry, UnitTangentRegressionNormalAndDegenerate) {
+TEST(geometry, UnitTangentRegressionNormalAndDegenerate) {
   const leaf::Path path{{0, 0}, {0, 5}, {0, 10}};
   const auto tangent = leaf::detail::unitTangentRegression(path, 2.0, 8.0, 0.5);
   ASSERT_TRUE(tangent.hasValue());
@@ -128,7 +129,7 @@ TEST(Geometry, UnitTangentRegressionNormalAndDegenerate) {
   EXPECT_EQ(errorCode(insufficient), leaf::ErrorCode::InvalidMeasurements);
 }
 
-TEST(Geometry, UnitTangentRegressionOrientedByEndpointProgression) {
+TEST(geometry, UnitTangentRegressionOrientedByEndpointProgression) {
   const leaf::Path path{{0, 0}, {0, 5}, {0, 10}};
   const auto tangent = leaf::detail::unitTangentRegression(path, 1.0, 9.0, 0.5);
   ASSERT_TRUE(tangent.hasValue());
@@ -136,7 +137,7 @@ TEST(Geometry, UnitTangentRegressionOrientedByEndpointProgression) {
   EXPECT_GT(tangent.value()->y, 0.0);
 }
 
-TEST(Geometry, ContourRayHitsNearestSignedDirections) {
+TEST(geometry, ContourRayHitsNearestSignedDirections) {
   const leaf::Path contour{{-5, 2}, {0, 2}, {5, 2}, {5, -1}, {-5, -1}, {-5, 2}};
   const auto hits = leaf::detail::contourRayHits(contour, {0, 2}, {1, 0});
   ASSERT_TRUE(hits.hasValue());
@@ -144,14 +145,14 @@ TEST(Geometry, ContourRayHitsNearestSignedDirections) {
   EXPECT_POINT_EQ(hits.value()->second, (leaf::Point{5, 2}));
 }
 
-TEST(Geometry, ContourRayHitsParallelRayFails) {
+TEST(geometry, ContourRayHitsParallelRayFails) {
   const leaf::Path contour{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}};
   const auto hits = leaf::detail::contourRayHits(contour, {0.5, 2.0}, {1, 0});
   EXPECT_FALSE(hits.hasValue());
   EXPECT_EQ(errorCode(hits), leaf::ErrorCode::InvalidMeasurements);
 }
 
-TEST(Geometry, ContourRayHitsDeduplicatesVertexIntersection) {
+TEST(geometry, ContourRayHitsDeduplicatesVertexIntersection) {
   const leaf::Path contour{{0, 0}, {2, 0}, {2, 2}, {0, 2}, {0, 0}};
   const auto hits = leaf::detail::contourRayHits(contour, {1, 0}, {1, 0});
   ASSERT_TRUE(hits.hasValue());
@@ -159,7 +160,7 @@ TEST(Geometry, ContourRayHitsDeduplicatesVertexIntersection) {
   EXPECT_POINT_EQ(hits.value()->second, (leaf::Point{2, 0}));
 }
 
-TEST(Geometry, SameSideContourArcChoosesShortestValidPath) {
+TEST(geometry, SameSideContourArcChoosesShortestValidPath) {
   const leaf::CoordinateSystem cs = axisAlignedCs(10.0);
   const leaf::Path contour{{-4, 1}, {-4, 0}, {0, 3}, {4, 0}, {4, 1}, {0, 2}};
   const auto arc = leaf::detail::sameSideContourArc(contour, {-4, 1}, {-4, 0}, cs, {0, 0},
@@ -168,7 +169,7 @@ TEST(Geometry, SameSideContourArcChoosesShortestValidPath) {
   EXPECT_NEAR(*arc.value(), 1.0, 1e-12);
 }
 
-TEST(Geometry, SameSideContourArcRejectsOppositeSideTraversal) {
+TEST(geometry, SameSideContourArcRejectsOppositeSideTraversal) {
   const leaf::CoordinateSystem cs = axisAlignedCs(10.0);
   const leaf::Path contour{{-2, 0}, {-2, 2}, {0, 4}, {2, 2}, {2, 0}, {-2, 0}};
   const auto arc = leaf::detail::sameSideContourArc(contour, {-2, 2}, {2, 2}, cs, {0, 0},
@@ -177,7 +178,16 @@ TEST(Geometry, SameSideContourArcRejectsOppositeSideTraversal) {
   EXPECT_EQ(errorCode(arc), leaf::ErrorCode::InvalidMeasurements);
 }
 
-TEST(Geometry, SameSideContourArcRejectsEqualValidArcs) {
+TEST(geometry, SameSideContourArcIgnoresGeometricallyIdenticalDuplicateRoutes) {
+  const leaf::CoordinateSystem cs = axisAlignedCs(10.0);
+  const leaf::Path contour{{-4, 1}, {-4, 0}, {0, 3}, {4, 0}, {4, 1}, {0, 2}, {-4, 1}};
+  const auto arc = leaf::detail::sameSideContourArc(contour, {-4, 1}, {-4, 0}, cs, {0, 0},
+                                                    {0, 10}, 1e-9 * cs.scale);
+  ASSERT_TRUE(arc.hasValue());
+  EXPECT_NEAR(*arc.value(), 1.0, 1e-12);
+}
+
+TEST(geometry, SameSideContourArcRejectsGeometricallyDistinctEqualValidArcs) {
   const leaf::CoordinateSystem cs = axisAlignedCs(10.0);
   const leaf::Path contour{{-2, 0}, {-2, 2}, {-3, 3}, {-2, 4}, {-1, 3}, {-2, 2}, {0, 5},
                            {1, 3},  {2, 2},  {2, 0},  {-2, 0}};
@@ -187,7 +197,14 @@ TEST(Geometry, SameSideContourArcRejectsEqualValidArcs) {
   EXPECT_EQ(errorCode(arc), leaf::ErrorCode::InvalidMeasurements);
 }
 
-TEST(Geometry, UnorientedAngleDegrees) {
+TEST(geometry, UnitTangentRegressionRejectsSingleSegmentWindow) {
+  const leaf::Path path{{0, 0}, {0, 10}, {0, 20}, {0, 30}};
+  const auto tangent = leaf::detail::unitTangentRegression(path, 5.5, 6.5, 0.5);
+  EXPECT_FALSE(tangent.hasValue());
+  EXPECT_EQ(errorCode(tangent), leaf::ErrorCode::InvalidMeasurements);
+}
+
+TEST(geometry, UnorientedAngleDegrees) {
   EXPECT_NEAR(leaf::detail::unorientedAngleDegrees({1, 0}, {1, 0}), 0.0, 1e-12);
   EXPECT_NEAR(leaf::detail::unorientedAngleDegrees({1, 0}, {0, 1}), 90.0, 1e-12);
   EXPECT_NEAR(leaf::detail::unorientedAngleDegrees({1, 0}, {-1, 0}), 180.0, 1e-12);
@@ -212,7 +229,7 @@ TEST_P(CoordinateRoundTripTest, ImageNormalizedRoundTrip) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    Geometry, CoordinateRoundTripTest,
+    geometry, CoordinateRoundTripTest,
     ::testing::Values(
         RoundTripCase{"origin", {{{0, 0}, {0, 10}}, {0, 0}, {0, 10}, 1.0}, {0, 0}},
         RoundTripCase{"positive_quadrant", {{{0, 0}, {0, 10}}, {0, 0}, {0, 10}, 1}, {4, 7}},

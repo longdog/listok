@@ -48,6 +48,51 @@ Outcome<ArcSamples> sampleArcInterval(const Path& path, double s0, double s1) no
   return Outcome<ArcSamples>::success(std::move(samples));
 }
 
+int countDistinctPoints(const std::vector<Point>& points, double tolerance) noexcept {
+  int distinct = 0;
+  for (const Point& point : points) {
+    bool isDistinct = true;
+    for (int i = 0; i < distinct; ++i) {
+      if (nearlyEqual(point, points[static_cast<std::size_t>(i)], tolerance)) {
+        isDistinct = false;
+        break;
+      }
+    }
+    if (isDistinct) {
+      ++distinct;
+    }
+  }
+  return distinct;
+}
+
+Outcome<std::vector<Point>> collectPointsInArcInterval(const Path& path, double lo, double hi,
+                                                         double tolerance) noexcept {
+  std::vector<Point> points;
+  double traveled = 0.0;
+  for (std::size_t i = 0; i < path.size(); ++i) {
+    if (i > 0) {
+      traveled += length(subtract(path[i], path[i - 1]));
+    }
+    if (traveled + tolerance >= lo && traveled - tolerance <= hi) {
+      points.push_back(path[i]);
+    }
+  }
+
+  const auto start = pointAtArc(path, lo);
+  if (!start.hasValue()) {
+    return Outcome<std::vector<Point>>::failure(*start.error());
+  }
+  points.push_back(*start.value());
+
+  const auto end = pointAtArc(path, hi);
+  if (!end.hasValue()) {
+    return Outcome<std::vector<Point>>::failure(*end.error());
+  }
+  points.push_back(*end.value());
+
+  return Outcome<std::vector<Point>>::success(std::move(points));
+}
+
 bool hasAtLeastThreeDistinctPoints(const std::vector<Point>& points) noexcept {
   int distinct = 0;
   for (const Point& point : points) {
@@ -131,7 +176,13 @@ Outcome<Point> unitTangentRegression(const Path& path, double s0, double s1,
     return Outcome<Point>::failure(
         {ErrorCode::InvalidMeasurements, Stage::Measurements, "span too small"});
   }
-  if (path.size() < 3) {
+  const double lo = std::min(s0, s1);
+  const double hi = std::max(s0, s1);
+  const auto intervalPoints = collectPointsInArcInterval(path, lo, hi, kDistinctPointTolerance);
+  if (!intervalPoints.hasValue()) {
+    return Outcome<Point>::failure(*intervalPoints.error());
+  }
+  if (countDistinctPoints(*intervalPoints.value(), kDistinctPointTolerance) < 3) {
     return Outcome<Point>::failure(
         {ErrorCode::InvalidMeasurements, Stage::Measurements, "insufficient points"});
   }
