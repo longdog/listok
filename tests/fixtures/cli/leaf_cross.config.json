@@ -1,0 +1,18 @@
+{
+  "preprocess": {
+    "normalizeIllumination": false,
+    "blurKernel": 1
+  },
+  "detection": {
+    "minimumStageConfidence": 0.0,
+    "ambiguityScoreDelta": 0.0,
+    "frameMarginPx": 2,
+    "minContourSolidity": 0.02,
+    "minLeafAreaRatio": 0.01,
+    "minCenterVeinLengthRatio": 0.4,
+    "branchMergeRadiusPx": 3,
+    "endpointContourSnapPx": 8,
+    "minSecondaryVeinLengthNorm": 0.05,
+    "minSkeletonBranchLengthNorm": 0.02
+  }
+}

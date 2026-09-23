@@ -8,6 +8,18 @@ extern "C" {
 
 #define LEAF_C_ABI_VERSION 1u
 
+/*
+ * ABI v1 ownership and threading:
+ * - Returned strings are allocated with one malloc and must be released only
+ *   with leaf_string_free. leaf_string_free(NULL) is a no-op.
+ * - leaf_analyzer_destroy(NULL) is a no-op. Destroying the same non-null
+ *   handle twice is undefined.
+ * - Distinct analyzer handles may be used concurrently. The same handle must
+ *   not be used concurrently, and destroy must not race with analyze.
+ * - No function retains the pixel pointer after it returns.
+ * - OpenCV types are not part of this header.
+ */
+
 typedef struct leaf_analyzer_t leaf_analyzer_t;
 
 typedef enum leaf_pixel_format_t {

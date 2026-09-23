@@ -26,18 +26,29 @@ leaf_find_nlohmann_json()
 leaf_find_opencv()
 
 add_library(leaf-core
+  src/adapters/json/config_json.cpp
+  src/adapters/json/result_json.cpp
   src/api/analyzer.cpp
   src/contracts/config.cpp
   src/contracts/version.cpp
+  src/detection/center/center_vein_detector.cpp
+  src/detection/contour/opencv_leaf_detector.cpp
+  src/detection/secondary/keypoint_extractor.cpp
+  src/detection/secondary/secondary_vein_detector.cpp
   src/geometry/contour_arc.cpp
   src/geometry/coordinate_system.cpp
   src/geometry/intersection.cpp
   src/geometry/polyline.cpp
   src/image/image.cpp
   src/image/resize.cpp
+  src/measurement/extractor.cpp
   src/preprocess/preprocessor.cpp
   src/skeleton/graph.cpp
   src/skeleton/thinning.cpp
+  src/statistics/asymmetry.cpp
+  src/statistics/batch.cpp
+  src/statistics/score.cpp
+  src/validation/quality.cpp
 )
 
 add_library(leaf::core ALIAS leaf-core)
@@ -63,17 +74,51 @@ target_link_libraries(leaf-core
 
 target_compile_features(leaf-core PUBLIC cxx_std_20)
 
-add_library(leaf-core-c INTERFACE)
+add_library(leaf-core-c STATIC src/adapters/c/leaf_c.cpp)
 add_library(leaf::core-c ALIAS leaf-core-c)
-target_link_libraries(leaf-core-c INTERFACE leaf-core)
+target_link_libraries(leaf-core-c PUBLIC leaf-core)
 target_include_directories(leaf-core-c
-  INTERFACE
+  PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
+target_compile_features(leaf-core-c PUBLIC cxx_std_20)
+
+if(LEAF_ENABLE_DEBUG)
+  add_library(leaf-core-debug STATIC src/debug/debug_renderer.cpp)
+  add_library(leaf::core-debug ALIAS leaf-core-debug)
+  target_link_libraries(leaf-core-debug PUBLIC leaf-core PRIVATE opencv_imgproc)
+  target_include_directories(leaf-core-debug PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/debug>
+  )
+endif()
 
 if(LEAF_BUILD_CLI)
-  message(STATUS "leaf-analyzer CLI target is added in Task 13")
+  add_executable(leaf-analyzer
+    tools/leaf-analyzer-cli/main.cpp
+    tools/leaf-analyzer-cli/image_io.cpp
+  )
+  target_include_directories(leaf-analyzer PRIVATE tools/leaf-analyzer-cli)
+  target_link_libraries(leaf-analyzer PRIVATE leaf-core opencv_imgcodecs opencv_imgproc)
+  if(LEAF_ENABLE_DEBUG)
+    target_compile_definitions(leaf-analyzer PRIVATE LEAF_ENABLE_DEBUG=1)
+    target_link_libraries(leaf-analyzer PRIVATE leaf-core-debug)
+    target_include_directories(leaf-analyzer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/debug)
+  endif()
+endif()
+
+if(LEAF_BUILD_BENCHMARKS)
+  add_executable(leaf-pipeline-benchmark benchmarks/leaf_pipeline_benchmark.cpp)
+  target_link_libraries(leaf-pipeline-benchmark PRIVATE leaf-core opencv_core opencv_imgproc)
+  target_include_directories(leaf-pipeline-benchmark PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/preprocess
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/detection/contour
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/detection/center
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/detection/secondary
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/skeleton
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/geometry
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/measurement
+  )
 endif()
 
 if(LEAF_BUILD_TESTS)
@@ -84,8 +129,24 @@ endif()
 
 if(LEAF_ENABLE_SANITIZERS)
   leaf_enable_sanitizers(leaf-core)
+  leaf_enable_sanitizers(leaf-core-c)
+  if(TARGET leaf-core-debug)
+    leaf_enable_sanitizers(leaf-core-debug)
+  endif()
+  if(TARGET leaf-analyzer)
+    leaf_enable_sanitizers(leaf-analyzer)
+  endif()
   if(TARGET leaf-core-tests)
     leaf_enable_sanitizers(leaf-core-tests)
+  endif()
+  if(TARGET leaf-pipeline-tests)
+    leaf_enable_sanitizers(leaf-pipeline-tests)
+  endif()
+  if(TARGET leaf-determinism-tests)
+    leaf_enable_sanitizers(leaf-determinism-tests)
+  endif()
+  if(TARGET leaf-c-abi-consumer)
+    leaf_enable_sanitizers(leaf-c-abi-consumer)
   endif()
 endif()
 
